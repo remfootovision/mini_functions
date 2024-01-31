@@ -1,0 +1,335 @@
+import warnings
+final=pd.DataFrame()
+
+for i in range(11):
+
+    temp=passesFv.copy()
+    game_id_to_del = []
+
+    # Filter the specific warning
+    warnings.filterwarnings("ignore", message="pandas only supports SQLAlchemy connectable.*")
+
+    temp['speedx'] = np.zeros(len(temp))
+    temp['speedy'] = np.zeros(len(temp))
+    temp['target_speed_x'] = np.zeros(len(temp))
+    temp['target_speed_y'] = np.zeros(len(temp))
+    temp['nbr_opp_intercept_pass'] = np.zeros(len(temp))
+    temp['area_covered'] = np.zeros(len(temp))
+    temp['yes_or_no_player_involved']=np.zeros(len(temp))
+    temp['expected_receiver']=np.zeros(len(temp))
+
+    length_boucle = 0
+
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        
+        for game_id in np.unique(temp['game_id']):
+            length_boucle += 1 
+            print(length_boucle,game_id)
+
+            speedx = []
+            speedy = []
+            target_speedx = []
+            target_speedy = []
+            nbr_opp_intercept_pass = []
+            area_covered = []
+            indic=[]
+            involved=[]
+
+
+
+            for ieme_pass in range(len(pass_events_game)):
+
+                # game_info = fvdb.sql_query_to_dataframe("SELECT * FROM game WHERE id = " + str(int(game_id)))
+
+                # attacking_team_l_to_r = game_info['team_id_left_to_right'].iloc[0]
+
+                pass_i = pass_events_game.iloc[ieme_pass,:]
+
+                pos_opponents = match[(match['frame']==pass_i['real_start_frame']) & (match['team_id']!=pass_i['team_id'])&(match['halftime']==pass_i['halftime'])].reset_index(drop=True)
+
+                pos_passer = match[(match['frame']==pass_i['real_start_frame']) & (match['player_id']==pass_i['player_id'])&(match['halftime']==pass_i['halftime'])].reset_index(drop=True)
+                
+
+                pos_team_w_ball = match[(match['frame']==pass_i['real_start_frame'])  & (match['team_id']==pass_i['team_id']) & (match['halftime']==pass_i['halftime'])].reset_index(drop=True)
+
+                try:
+                    # Tentez d'accéder à l'élément. Remplacez '3' par l'index ou la colonne appropriée.
+                    pos_receiver = pos_team_w_ball.iloc[i,:]
+
+                except IndexError:
+                    continue
+
+                if pos_receiver.shape[0] == 0:
+                    speedx.append(np.nan)
+                    speedy.append(np.nan)
+                    target_speedx.append(np.nan)
+                    target_speedy.append(np.nan)
+                    nbr_opp_intercept_pass.append(np.nan)
+                    area_covered.append(np.nan)
+
+                else:
+                    indic=indic.append(pos_receiver["player_id"]==pass_i['involved_player_id'])
+                    involved=involved.append(pass_i['involved_player_id'])  # Utilisez .iloc ou .loc selon le besoin
+                    if pass_i['halftime'] == 1:
+                        if pass_i['team_id'] == attacking_team_l_to_r:
+                            speedx.append(pos_passer['speed_x'])
+                            speedy.append(pos_passer['speed_y'])
+                            target_speedx.append(pos_receiver['speed_x'])
+                            target_speedy.append(pos_receiver['speed_y'])
+                        else:
+                            speedx.append(-pos_passer['speed_x'])
+                            speedy.append(-pos_passer['speed_y'])
+                            target_speedx.append(-pos_receiver['speed_x'])
+                            target_speedy.append(-pos_receiver['speed_y'])
+                    else:
+                        if pass_i['team_id'] == attacking_team_l_to_r:
+                            speedx.append(-pos_passer['speed_x'])
+                            speedy.append(-pos_passer['speed_y'])
+                            target_speedx.append(-pos_receiver['speed_x'])
+                            target_speedy.append(-pos_receiver['speed_y'])
+                        else:
+                            speedx.append(pos_passer['speed_x'])
+                            speedy.append(pos_passer['speed_y'])
+                            target_speedx.append(pos_receiver['speed_x'])
+                            target_speedy.append(pos_receiver['speed_y'])
+
+                    var_X = (pos_receiver['x'].iloc[0]-pos_passer['x'].iloc[0])
+                    var_Y = (pos_receiver['y'].iloc[0]-pos_passer['y'].iloc[0])
+
+                    if abs(var_X) < 1e-6:
+                        area_covered.append(np.nan)
+                        nbr_opp_intercept_pass.append(np.nan)
+                        continue
+
+                    if abs(var_Y) < 1e-6:
+                        area_covered.append(np.nan)
+                        nbr_opp_intercept_pass.append(np.nan)
+                        continue
+
+                    vecteur_dir_BC = (-1,(var_X)/(var_Y))
+                    dist = math.tan(6) * np.sqrt((var_X)**2+(var_Y)**2)
+                    norme_vect_dir_BC = np.sqrt(vecteur_dir_BC[0]**2+vecteur_dir_BC[1]**2) # ||v||
+                    vect_dist_BC = (dist/norme_vect_dir_BC) * np.array(vecteur_dir_BC)
+
+                    rec = (pos_receiver['x'].iloc[0],pos_receiver['y'].iloc[0])
+
+                    C1 = rec - vect_dist_BC
+                    C2 = rec + vect_dist_BC
+
+                    triange_vertices = [(pos_passer['x'].iloc[0],pos_passer['y'].iloc[0]),C1,C2]
+
+                    nbr_opp_in_triangle = 0
+
+                    opp_pos_in_triangle = []
+
+                    for j in range(len(pos_opponents)):
+
+                        opp_j = (pos_opponents['x'].iloc[j], pos_opponents['y'].iloc[j])
+
+                        if is_inside_triangle((pos_passer['x'].iloc[0],pos_passer['y'].iloc[0]), C1, C2, opp_j):
+
+                            nbr_opp_in_triangle += 1
+
+                            opp_pos_in_triangle.append(opp_j)
+
+                    pos_passer = triange_vertices[0]   
+                        
+                    if nbr_opp_in_triangle>=1:
+
+                        #droite receveur : y = ax+b
+
+                        vector_receiver = [C2[0]-C1[0],C2[1]-C1[1]]
+                        if vector_receiver[0] == 0:
+                            area_covered.append(np.nan)
+                            nbr_opp_intercept_pass.append(np.nan)
+                            continue
+                        pente_receiver = vector_receiver[1]/vector_receiver[0] # a
+
+                        if np.round(pente_receiver,2) == 0:
+                            area_covered.append(np.nan)
+                            nbr_opp_intercept_pass.append(np.nan)
+                            continue
+
+                        b_receiver = C1[1] - (C1[0] * pente_receiver) # b
+
+                        x_l = []
+                        x_r = []
+                        y_l = []
+                        y_r = []
+
+                        break_loop=False
+
+                        for i in range(len(opp_pos_in_triangle)):
+
+                            opp_i = opp_pos_in_triangle[i]
+
+                            if (opp_i[0] == pos_passer[0]) & (opp_i[1] == pos_passer[1]):
+                                break_loop=True
+
+                            var_X_def = (opp_i[0] - pos_passer[0])
+                            var_Y_def = (opp_i[1] - pos_passer[1])        
+
+                            vecteur_dir_BC_def = (-1,(var_X_def)/(var_Y_def))
+                            dist_def = math.tan(6) * np.sqrt((var_X_def)**2 +(var_Y_def)**2)
+                            norme_vect_dir_BC_def = np.sqrt(vecteur_dir_BC_def[0]**2+vecteur_dir_BC_def[1]**2)
+                            vecteur_dist = (dist_def/norme_vect_dir_BC_def) * np.array(vecteur_dir_BC_def)
+
+                            envergure_1 = opp_i - vecteur_dist
+                            envergure_2 = opp_i + vecteur_dist
+
+                            vecteur_envergure_1 = (envergure_1[0]-pos_passer[0],envergure_1[1]-pos_passer[1])
+                            pente_envergure_1 = vecteur_envergure_1[1]/vecteur_envergure_1[0]
+                            b_envergure_1 = pos_passer[1] - pente_envergure_1 * pos_passer[0]
+
+                            vecteur_envergure_2 = (envergure_2[0]-pos_passer[0],envergure_2[1]-pos_passer[1])
+                            pente_envergure_2 = vecteur_envergure_2[1]/vecteur_envergure_2[0]
+                            b_envergure_2 = pos_passer[1] - pente_envergure_2 * pos_passer[0]
+
+                            x_envergure_1_receiver = ((b_envergure_1 - b_receiver)/(pente_receiver - pente_envergure_1))
+                            y_envergure_1_receiver = pente_envergure_1 * x_envergure_1_receiver + b_envergure_1
+
+                            x_envergure_2_receiver = ((b_envergure_2 - b_receiver)/(pente_receiver - pente_envergure_2))
+                            y_envergure_2_receiver = pente_envergure_2 * x_envergure_2_receiver + b_envergure_2
+
+                            x_l.append(x_envergure_1_receiver)
+                            x_r.append(x_envergure_2_receiver)
+                            y_l.append(y_envergure_1_receiver)
+                            y_r.append(y_envergure_2_receiver)
+
+                        if break_loop:
+                            area_covered.append(100)
+                            nbr_opp_intercept_pass.append(nbr_opp_in_triangle)
+                            continue
+
+                        if C1[0] < C2[0]:
+                            min_value_l = C1[0]
+                            origin_l = C1
+                            max_val_r = C2[0]
+                            origin_r = C2
+                        else:
+                            min_value_l = C2[0]
+                            origin_l = C2
+                            max_val_r = C1[0]
+                            origin_r = C1
+
+                        sorted_indices = sorted(range(len(x_l)), key=lambda k: x_l[k])
+
+                        x_l_sorted = [x_l[i] for i in sorted_indices]
+                        x_r_sorted = [x_r[i] for i in sorted_indices]
+                        y_l_sorted = [y_l[i] for i in sorted_indices]
+                        y_r_sorted = [y_r[i] for i in sorted_indices]
+
+                        if len(x_l_sorted)==1:
+                            if x_l_sorted[0]>=x_r_sorted[0]:
+                                new_val = [x_l_sorted,y_l_sorted]
+                                x_l_sorted = x_r_sorted
+                                y_l_sorted = y_r_sorted
+                                x_r_sorted = new_val[0]
+                                y_r_sorted = new_val[1]
+
+                        for ind in range(len(x_l_sorted)):
+                            if x_l_sorted[ind] < min_value_l:
+                                x_l_sorted[ind] = min_value_l
+                                y_l_sorted[ind] = origin_l[1]
+                            if x_r_sorted[ind] > max_val_r:
+                                x_r_sorted[ind] = max_val_r
+                                y_r_sorted[ind] = origin_r[1]
+                            if x_r_sorted[ind]< min_value_l:
+                                x_r_sorted[ind] = min_value_l
+                                y_r_sorted[ind] = origin_l[1]
+                            if x_l_sorted[ind]>max_val_r:
+                                x_r_sorted[ind] = max_val_r
+                                y_l_sorted[ind] = origin_r[1]
+
+                        final_triangles = [[pos_passer, (x_l_sorted[0], y_l_sorted[0]), (x_r_sorted[0], y_r_sorted[0])]]
+
+                        if pente_receiver>=0:
+
+                            for k in range(1,len(y_l_sorted)):
+                                m = len(final_triangles)
+                                new_triangle = False
+                                for n in range(m):
+
+                                    if y_l_sorted[k] >= final_triangles[n][1][1] and y_l_sorted[k] <= final_triangles[n][2][1]:
+                                        if y_r_sorted[k] >= final_triangles[n][2][1]:
+                                            final_triangles[n][2] = (x_r_sorted[k], y_r_sorted[k])
+                                            new_triangle = False
+                                        else :
+                                            new_triangle = False
+                                        if not new_triangle:
+                                            break        
+                                            
+                                    if y_r_sorted[k] <= final_triangles[n][1][1] and y_r_sorted[k] >= final_triangles[n][2][1]:
+                                        if y_l_sorted[k] <= final_triangles[n][1][1]:
+                                            final_triangles[n][1] = (x_l_sorted[k], y_l_sorted[k])
+                                            new_triangle = False
+                                        else:
+                                            new_triangle = False
+                                        if not new_triangle:
+                                            break    
+                                    else:
+                                        new_triangle = True
+
+                                if new_triangle:
+                                    final_triangles.append([pos_passer, (x_l_sorted[k], y_l_sorted[k]), (x_r_sorted[k], y_r_sorted[k])])
+                        else:
+                            for k in range(1,len(y_l_sorted)):
+                                m = len(final_triangles)
+                                new_triangle = False
+                                for n in range(m):
+
+                                    if y_l_sorted[k] <= final_triangles[n][1][1] and y_l_sorted[k] >= final_triangles[n][2][1]:
+                                        if y_r_sorted[k] <= final_triangles[n][2][1]:
+                                            final_triangles[n][2] = (x_r_sorted[k], y_r_sorted[k])
+                                            new_triangle = False
+                                        else :
+                                            new_triangle = False
+                                        if not new_triangle:
+                                            break        
+                                            
+                                    if y_r_sorted[k] >= final_triangles[n][1][1] and y_r_sorted[k] <= final_triangles[n][2][1]:
+                                        if y_l_sorted[k] >= final_triangles[n][1][1]:
+                                            final_triangles[n][1] = (x_l_sorted[k], y_l_sorted[k])
+                                            new_triangle = False
+                                        else:
+                                            new_triangle = False
+                                        if not new_triangle:
+                                            break    
+                                    else:
+                                        new_triangle = True
+
+                                if new_triangle:
+                                    final_triangles.append([pos_passer, (x_l_sorted[k], y_l_sorted[k]), (x_r_sorted[k], y_r_sorted[k])])
+
+                        area_from_shot = area(triange_vertices[0][0],triange_vertices[0][1],
+                                            triange_vertices[1][0],triange_vertices[1][1],
+                                            triange_vertices[2][0],triange_vertices[2][1])
+                        area_final_covered = 0
+
+                        for triangle in final_triangles:
+                            area_final_covered += area(triangle[0][0], triangle[0][1], triangle[1][0], triangle[1][1], triangle[2][0], triangle[2][1])
+
+                        # if np.round((area_final_covered/area_from_shot)*100,3)>100:
+                        #     print(game_id,ieme_pass)
+                            
+                        area_covered.append(np.round((area_final_covered/area_from_shot)*100,3))
+                        nbr_opp_intercept_pass.append(nbr_opp_in_triangle)
+                    else:
+                        area_covered.append(0)
+                        nbr_opp_intercept_pass.append(0)
+                    
+            temp.loc[temp['game_id']==game_id,'expected_receiver']= involved
+            temp.loc[temp['game_id']==game_id,'yes_or_no_player_involved'] = indic
+            temp.loc[temp['game_id']==game_id,'speedx'] = speedx
+            temp.loc[temp['game_id']==game_id,'speedy'] = speedy
+            temp.loc[temp['game_id']==game_id,'target_speed_x'] = target_speedx
+            temp.loc[temp['game_id']==game_id,'target_speed_y'] = target_speedy
+            temp.loc[temp['game_id']==game_id,'nbr_opp_intercept_pass'] = nbr_opp_intercept_pass
+            temp.loc[temp['game_id']==game_id,'area_covered'] = area_covered
+            
+
+    temp['angle'] = temp.apply(lambda row: angle_between_vectors((row['speedx'], row['speedy']),(row['target_start_norm_x']-row['start_x_norm'],row['target_start_norm_y']-row['start_y_norm'])), axis=1)
+    temp['angle_speed'] = temp.apply(lambda row: angle_between_vectors((row['speedx'], row['speedy']),(row['target_speed_x'],row['target_speed_y'])), axis=1)
+
+final=pd.concat([final,temp],axis=0)
